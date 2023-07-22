@@ -63,19 +63,19 @@ using (var client = new SftpClient(connectionInfo))
         //transferLog.WriteLine("local files {0}", localFiles);
         //transferLog.WriteLine("remote files {0}", remoteFileNames);
 
+        const int bufferSize = 1024 * 1024; // 1MB buffer sounds fine
         var downloadFile = (SftpFile remoteFile) =>
         {
-            using (var localFile = File.Create(Path.Combine(localDir, remoteFile.Name)))
+            var fileLength = (int)remoteFile.Length;
+            using (var localFile = File.Create(Path.Combine(localDir, remoteFile.Name), bufferSize, FileOptions.SequentialScan))
             {
-                var fileLength = (int)remoteFile.Length;
-                var stream = new MemoryStream(fileLength);
                 var bar = new ProgressBar(transferLog, fileLength);
                 bar.Refresh(0, remoteFile.Name);
-                client.DownloadFile(remoteFile.FullName, stream, (progress) =>
+                client.DownloadFile(remoteFile.FullName, localFile, (bytesRead) =>
                 {
-                    bar.Refresh((int)progress, remoteFile.Name);
+                    var elapsedTime = (DateTime.Now - nextSyncDatum).Seconds + 1;
+                    bar.Refresh((int)bytesRead, $"{(float)bytesRead / elapsedTime / 1024 / 1024:0.00}Mb/s {remoteFile.Name}");
                 });
-                localFile.Write(stream.ToArray());
             }
         };
 
