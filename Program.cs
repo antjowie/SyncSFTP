@@ -74,7 +74,7 @@ using (var client = new SftpClient(connectionInfo))
             var fileLength = (int)remoteFile.Length;
             using (var localFile = File.Create(Path.Combine(localDir, remoteFile.Name), bufferSize, FileOptions.SequentialScan))
             {
-                var bar = new ProgressBar(transferLog, PbStyle.DoubleLine, fileLength);
+                var bar = new ProgressBar(transferLog, fileLength);
                 bar.Refresh(0, remoteFile.Name);
                 client.DownloadFile(remoteFile.FullName, localFile, (bytesRead) =>
                 {
