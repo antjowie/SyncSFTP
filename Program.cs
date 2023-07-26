@@ -9,6 +9,10 @@ using Konsole;
 using Renci.SshNet.Sftp;
 using System.Text.Json;
 
+var bytesToKbs = 1f / 1024;
+var bytesToMbs = bytesToKbs / 1024;
+var bytesToGbs = bytesToMbs / 1024;
+
 var window = Window.Open();
 window.CursorVisible = false;
 var statusLog = window.SplitLeft("status");
@@ -25,6 +29,7 @@ try
 }
 catch (Exception e)
 {
+    statusLog.Write($"Caught exception {e}");
     statusLog.Write("Failed to read config file, generating one...");
     using (var file = File.CreateText("config.json"))
     {
@@ -69,12 +74,14 @@ using (var client = new SftpClient(connectionInfo))
             var fileLength = (int)remoteFile.Length;
             using (var localFile = File.Create(Path.Combine(localDir, remoteFile.Name), bufferSize, FileOptions.SequentialScan))
             {
-                var bar = new ProgressBar(transferLog, fileLength);
+                var bar = new ProgressBar(transferLog, PbStyle.DoubleLine, fileLength);
                 bar.Refresh(0, remoteFile.Name);
                 client.DownloadFile(remoteFile.FullName, localFile, (bytesRead) =>
                 {
                     var elapsedTime = (DateTime.Now - nextSyncDatum).Seconds + 1;
-                    bar.Refresh((int)bytesRead, $"{(float)bytesRead / elapsedTime / 1024 / 1024:0.00}Mb/s {remoteFile.Name}");
+                    var bytesPerSecond = (float)bytesRead / elapsedTime;
+                    var secondsLeft = (int)(fileLength / (bytesPerSecond == 0 ? 1 : bytesPerSecond));
+                    bar.Refresh((int)bytesRead, $"{bytesPerSecond * bytesToMbs:0.00}Mb/s {secondsLeft}s left {remoteFile.Name}");
                 });
             }
         };
@@ -87,6 +94,29 @@ using (var client = new SftpClient(connectionInfo))
         else
         {
             transferLog.WriteLine("Found no new files");
+        }
+
+        // Handle purging files
+        if (config.maxBackupSizeGBs > 0)
+        {
+            var maxBytes = config.maxBackupSizeGBs / bytesToGbs;
+            var currentSize = 0;
+            new DirectoryInfo(config.localDir).GetFiles()
+            .OrderBy(file => file.CreationTime).ToList().ForEach(file =>
+            {
+                // TODO hack out backups.json. If it's ever used for other projects make sure to add pattern matching in config
+                if (file.Name.Contains("backups.json"))
+                {
+                    return;
+                }
+
+                currentSize += (int)file.Length;
+                if (currentSize > maxBytes)
+                {
+                    transferLog.WriteLine($"Removing {file.Name}");
+                    file.Delete();
+                }
+            });
         }
         bSyncIsOngoing = false;
         nextSyncDatum = DateTime.Now + TimeSpan.FromSeconds(config.syncInterval);
@@ -104,10 +134,13 @@ using (var client = new SftpClient(connectionInfo))
 }
 void PrintStatusInfo()
 {
+    var directoryInfo = new DirectoryInfo(config.localDir);
+    var backupSize = directoryInfo.GetFiles().Aggregate(0L, (current, info) => current + info.Length);
+    var maxBackupSizeFeedback = config.maxBackupSizeGBs == 0 ? "" : $"/{config.maxBackupSizeGBs}";
     statusLog.CursorLeft = statusLog.CursorTop = 0;
     statusLog.WriteLine($"Connected to: {config.address}");
     statusLog.WriteLine($"Files are stored at {localDir}");
-    statusLog.WriteLine($"Currently storing {GetLocalFilePaths().Length} files");
+    statusLog.WriteLine($"Currently storing {GetLocalFilePaths().Length} files ({backupSize * bytesToGbs:00}{maxBackupSizeFeedback:00}GBs)");
     statusLog.WriteLine($"Sync status: {(bSyncIsOngoing ? "Ongoing!" : "Waiting...")}");
     if (!bSyncIsOngoing)
     {

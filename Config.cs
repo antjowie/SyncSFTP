@@ -16,5 +16,7 @@ namespace SyncSFTP
         public string localDir { get; set; }
         public string remoteDir { get; set; }
         public int syncInterval { get; set; }
+
+        public int maxBackupSizeGBs { get; set; }
     }
 }
