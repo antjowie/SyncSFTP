@@ -80,7 +80,7 @@ using (var client = new SftpClient(connectionInfo))
                 {
                     var elapsedTime = (DateTime.Now - nextSyncDatum).Seconds + 1;
                     var bytesPerSecond = (float)bytesRead / elapsedTime;
-                    var secondsLeft = (int)(fileLength / (bytesPerSecond == 0 ? 1 : bytesPerSecond));
+                    var secondsLeft = (int)((fileLength - (int)bytesRead) / (bytesPerSecond == 0 ? 1 : bytesPerSecond));
                     bar.Refresh((int)bytesRead, $"{bytesPerSecond * bytesToMbs:0.00}Mb/s {secondsLeft}s left {remoteFile.Name}");
                 });
             }
