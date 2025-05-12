@@ -1,10 +1,15 @@
-﻿namespace SyncSFTP
+﻿using System.Text.Json.Serialization;
+
+namespace SyncSFTP
 {
     public struct Config
     {
         public Config()
         {
         }
+
+        [JsonIgnore]
+        public string path { get; } = Path.GetFullPath("config.json");
 
         public string address { get; set; }
         public int port { get; set; }

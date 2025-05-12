@@ -13,21 +13,20 @@ var bytesToMbs = bytesToKbs / 1024;
 var bytesToGbs = bytesToMbs / 1024;
 
 // Find and parse config
-var configPath = Path.GetFullPath("config.json");
 Config config = new Config();
 try
 {
-    config = JsonSerializer.Deserialize<Config>(File.ReadAllText(configPath));
+    config = JsonSerializer.Deserialize<Config>(File.ReadAllText(config.path));
 }
 catch (Exception e)
 {
-    if (File.Exists(configPath)) {
+    if (File.Exists(config.path)) {
         // It did exist but we couldn't parse it
         Console.WriteLine($"Caught exception {e}");
     }
 
-    Console.WriteLine($"\nFailed to read config file (searched for \"{configPath}\"), generating one...");
-    using (var file = File.CreateText(configPath))
+    Console.WriteLine($"\nFailed to read config file (searched for \"{config.path}\"), generating one...");
+    using (var file = File.CreateText(config.path))
     {
         file.Write(JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
     }
@@ -35,6 +34,16 @@ catch (Exception e)
     Console.ReadKey();
 
     return;
+}
+
+PurgedFiles purgedFiles = new PurgedFiles();
+try
+{
+    purgedFiles = JsonSerializer.Deserialize<PurgedFiles>(File.ReadAllText(purgedFiles.path));
+}
+catch (Exception e)
+{
+    purgedFiles.Write();
 }
 
 //var width = Window.HostConsole.WindowWidth;
@@ -96,7 +105,17 @@ using (var client = new SftpClient(connectionInfo))
             }
         };
 
-        var filesToSync = remoteFiles.Where(file => !localFiles.Contains(Path.GetFileName(file.Name)));
+        var shouldDownloadFile = (SftpFile file) =>
+        {
+            var name = Path.GetFileName(file.Name);
+            var shouldDownload = true;
+            shouldDownload &= localFiles.Contains(name) == false;
+            shouldDownload &= purgedFiles.purgedFiles.Contains(name) == false;
+            // TODO hack out backups.json. If it's ever used for other projects make sure to add pattern matching in config
+            shouldDownload &= name.Contains("backups.json") == false;
+            return shouldDownload;
+        };
+        var filesToSync = remoteFiles.Where(shouldDownloadFile);
         if (filesToSync.Any())
         {
             Task.WhenAll(filesToSync.Select(file => Task.Run(() => downloadFile(file)))).Wait();
@@ -110,21 +129,19 @@ using (var client = new SftpClient(connectionInfo))
         if (config.maxBackupSizeGBs > 0)
         {
             var currentSizeGBs = 0f;
-            new DirectoryInfo(config.localDir).GetFiles().OrderBy(file => file.CreationTime).ToList().ForEach(file =>
+            new DirectoryInfo(config.localDir).GetFiles().OrderByDescending(file => file.CreationTimeUtc).ToList().ForEach(file =>
             {
-                // TODO hack out backups.json. If it's ever used for other projects make sure to add pattern matching in config
-                if (file.Name.Contains("backups.json"))
-                {
-                    return;
-                }
 
                 currentSizeGBs += file.Length * bytesToGbs;
                 if (currentSizeGBs > config.maxBackupSizeGBs)
                 {
                     transferLog.WriteLine($"Removing {file.Name}");
                     file.Delete();
+                    purgedFiles.purgedFiles.Add(file.Name);
                 }
             });
+
+            purgedFiles.Write();
         }
         bSyncIsOngoing = false;
         nextSyncDatum = DateTime.Now + TimeSpan.FromSeconds(config.syncInterval);
