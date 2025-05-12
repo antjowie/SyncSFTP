@@ -8,37 +8,47 @@ using SyncSFTP;
 using Konsole;
 using Renci.SshNet.Sftp;
 using System.Text.Json;
-
 var bytesToKbs = 1f / 1024;
 var bytesToMbs = bytesToKbs / 1024;
 var bytesToGbs = bytesToMbs / 1024;
 
-var window = Window.Open();
-window.CursorVisible = false;
-var statusLog = window.SplitLeft("status");
-var transferLog = window.SplitRight("transfers");
+// Find and parse config
+var configPath = Path.GetFullPath("config.json");
+Config config = new Config();
+try
+{
+    config = JsonSerializer.Deserialize<Config>(File.ReadAllText(configPath));
+}
+catch (Exception e)
+{
+    if (File.Exists(configPath)) {
+        // It did exist but we couldn't parse it
+        Console.WriteLine($"Caught exception {e}");
+    }
+
+    Console.WriteLine($"\nFailed to read config file (searched for \"{configPath}\"), generating one...");
+    using (var file = File.CreateText(configPath))
+    {
+        file.Write(JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
+    }
+    Console.WriteLine("Done, please make sure to fill out the config file. Press enter to close");
+    Console.ReadKey();
+
+    return;
+}
+
+//var width = Window.HostConsole.WindowWidth;
+//var height = Window.HostConsole.WindowHeight;
+//var window = Konsole.Platform.PlatformExtensions.LockConsoleResizing(new Window(), width, height);
+//var console = window.Concurrent();
+var console = Window.Open();
+console.CursorVisible = false;
+var statusLog = console.SplitLeft("status");
+var transferLog = console.SplitRight("transfers");
 
 var nextSyncDatum = DateTime.Now;
 var bSyncIsOngoing = false;
 var localDir = "";
-// Find and parse config
-Config config = new Config();
-try
-{
-    config = JsonSerializer.Deserialize<Config>(File.ReadAllText("config.json"));
-}
-catch (Exception e)
-{
-    statusLog.Write($"Caught exception {e}");
-    statusLog.Write("Failed to read config file, generating one...");
-    using (var file = File.CreateText("config.json"))
-    {
-        file.Write(JsonSerializer.Serialize(config, new JsonSerializerOptions { WriteIndented = true }));
-    }
-    statusLog.Write("Done, press enter to close");
-    Console.ReadKey();
-    return;
-}
 localDir = Path.Combine(Environment.CurrentDirectory, config.localDir);
 Directory.CreateDirectory(localDir);
 
@@ -99,10 +109,8 @@ using (var client = new SftpClient(connectionInfo))
         // Handle purging files
         if (config.maxBackupSizeGBs > 0)
         {
-            var maxBytes = config.maxBackupSizeGBs / bytesToGbs;
-            var currentSize = 0;
-            new DirectoryInfo(config.localDir).GetFiles()
-            .OrderBy(file => file.CreationTime).ToList().ForEach(file =>
+            var currentSizeGBs = 0f;
+            new DirectoryInfo(config.localDir).GetFiles().OrderBy(file => file.CreationTime).ToList().ForEach(file =>
             {
                 // TODO hack out backups.json. If it's ever used for other projects make sure to add pattern matching in config
                 if (file.Name.Contains("backups.json"))
@@ -110,8 +118,8 @@ using (var client = new SftpClient(connectionInfo))
                     return;
                 }
 
-                currentSize += (int)file.Length;
-                if (currentSize > maxBytes)
+                currentSizeGBs += file.Length * bytesToGbs;
+                if (currentSizeGBs > config.maxBackupSizeGBs)
                 {
                     transferLog.WriteLine($"Removing {file.Name}");
                     file.Delete();
@@ -140,7 +148,7 @@ void PrintStatusInfo()
     statusLog.CursorLeft = statusLog.CursorTop = 0;
     statusLog.WriteLine($"Connected to: {config.address}");
     statusLog.WriteLine($"Files are stored at {localDir}");
-    statusLog.WriteLine($"Currently storing {GetLocalFilePaths().Length} files ({backupSize * bytesToGbs:00}{maxBackupSizeFeedback:00}GBs)");
+    statusLog.WriteLine($"Currently storing {GetLocalFilePaths().Length} files ({backupSize * bytesToGbs:00}{maxBackupSizeFeedback:00}GB)");
     statusLog.WriteLine($"Sync status: {(bSyncIsOngoing ? "Ongoing!" : "Waiting...")}");
     if (!bSyncIsOngoing)
     {
