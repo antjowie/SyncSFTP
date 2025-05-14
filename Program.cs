@@ -41,7 +41,7 @@ try
 {
     purgedFiles = JsonSerializer.Deserialize<PurgedFiles>(File.ReadAllText(purgedFiles.path));
 }
-catch (Exception e)
+catch (Exception)
 {
     purgedFiles.Write();
 }
@@ -90,17 +90,18 @@ using (var client = new SftpClient(connectionInfo))
         const int bufferSize = 1024 * 1024; // 1MB buffer sounds fine
         var downloadFile = (SftpFile remoteFile) =>
         {
-            var fileLength = (int)remoteFile.Length;
+            var fileBytes = (ulong)remoteFile.Length;
             using (var localFile = File.Create(Path.Combine(localDir, remoteFile.Name), bufferSize, FileOptions.SequentialScan))
             {
-                var bar = new ProgressBar(transferLog, fileLength);
-                bar.Refresh(0, remoteFile.Name);
+                var bar = new ProgressBar(transferLog, (int)(fileBytes * bytesToMbs), 40);
+                bar.Refresh(0, $"{fileBytes * bytesToGbs:0.00}GB {remoteFile.Name}");
                 client.DownloadFile(remoteFile.FullName, localFile, (bytesRead) =>
                 {
-                    var elapsedTime = (DateTime.Now - nextSyncDatum).Seconds + 1;
-                    var bytesPerSecond = (float)bytesRead / elapsedTime;
-                    var secondsLeft = (int)((fileLength - (int)bytesRead) / (bytesPerSecond == 0 ? 1 : bytesPerSecond));
-                    bar.Refresh((int)bytesRead, $"{bytesPerSecond * bytesToMbs:0.00}Mb/s {secondsLeft}s left {remoteFile.Name}");
+                    var elapsedTime = (uint)(DateTime.Now - nextSyncDatum).Seconds + 1;
+                    var bytesLeft = fileBytes - bytesRead;
+                    var bytesPerSecond = bytesRead / elapsedTime;
+                    var secondsLeft = bytesLeft / (bytesPerSecond == 0 ? 1 : bytesPerSecond);
+                    bar.Refresh((int)(bytesRead * bytesToMbs), $"{fileBytes * bytesToGbs:0.00}GB {bytesPerSecond * bytesToMbs:0.00}Mb/s ({secondsLeft}s) {remoteFile.Name}");
                 });
             }
         };
@@ -164,8 +165,8 @@ void PrintStatusInfo()
     var maxBackupSizeFeedback = config.maxBackupSizeGBs == 0 ? "" : $"/{config.maxBackupSizeGBs}";
     statusLog.CursorLeft = statusLog.CursorTop = 0;
     statusLog.WriteLine($"Connected to: {config.address}");
-    statusLog.WriteLine($"Files are stored at {localDir}");
-    statusLog.WriteLine($"Currently storing {GetLocalFilePaths().Length} files ({backupSize * bytesToGbs:00}{maxBackupSizeFeedback:00}GB)");
+    statusLog.WriteLine($"Stored at: {localDir}");
+    statusLog.WriteLine($"Stored {GetLocalFilePaths().Length} files ({backupSize * bytesToGbs:00}{maxBackupSizeFeedback:00}GB)");
     statusLog.WriteLine($"Sync status: {(bSyncIsOngoing ? "Ongoing!" : "Waiting...")}");
     if (!bSyncIsOngoing)
     {
