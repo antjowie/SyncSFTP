@@ -101,7 +101,7 @@ using (var client = new SftpClient(connectionInfo))
                     var bytesLeft = fileBytes - bytesRead;
                     var bytesPerSecond = bytesRead / elapsedTime;
                     var secondsLeft = bytesLeft / (bytesPerSecond == 0 ? 1 : bytesPerSecond);
-                    bar.Refresh((int)(bytesRead * bytesToMbs), $"{fileBytes * bytesToGbs:0.00}GB {bytesPerSecond * bytesToMbs:0.00}Mb/s ({secondsLeft}s) {remoteFile.Name}");
+                    bar.Refresh((int)(bytesRead * bytesToMbs), $"{bytesRead * bytesToGbs:0.00}/{fileBytes * bytesToGbs:0.00}GBs {bytesPerSecond * bytesToMbs:0.00}Mb/s ({secondsLeft}s) {remoteFile.Name}");
                 });
             }
         };
