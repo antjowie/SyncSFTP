@@ -86,9 +86,8 @@ using (var client = new SftpClient(connectionInfo))
         var remoteFileNames = remoteFiles.Select(file => file.FullName);
         //transferLog.WriteLine("local files {0}", localFiles);
         //transferLog.WriteLine("remote files {0}", remoteFileNames);
-
         const int bufferSize = 1024 * 1024; // 1MB buffer sounds fine
-        var downloadFile = (SftpFile remoteFile) =>
+        var downloadFile = (ISftpFile remoteFile) =>
         {
             var fileBytes = (ulong)remoteFile.Length;
             using (var localFile = File.Create(Path.Combine(localDir, remoteFile.Name), bufferSize, FileOptions.SequentialScan))
@@ -106,7 +105,7 @@ using (var client = new SftpClient(connectionInfo))
             }
         };
 
-        var shouldDownloadFile = (SftpFile file) =>
+        var shouldDownloadFile = (ISftpFile file) =>
         {
             var name = Path.GetFileName(file.Name);
             var shouldDownload = true;
