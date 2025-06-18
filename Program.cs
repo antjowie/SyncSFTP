@@ -100,6 +100,9 @@ using (var client = new SftpClient(connectionInfo))
                     var bytesLeft = fileBytes - bytesRead;
                     var bytesPerSecond = bytesRead / elapsedTime;
                     var secondsLeft = bytesLeft / (bytesPerSecond == 0 ? 1 : bytesPerSecond);
+
+                    fileBytes = (ulong)remoteFile.Length;
+                    bar.Max = (int)(fileBytes * bytesToMbs);
                     bar.Refresh((int)(bytesRead * bytesToMbs), $"{bytesRead * bytesToGbs:0.00}/{fileBytes * bytesToGbs:0.00}GBs {bytesPerSecond * bytesToMbs:0.00}Mb/s ({secondsLeft}s) {remoteFile.Name}");
                 });
             }
