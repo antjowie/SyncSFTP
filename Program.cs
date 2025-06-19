@@ -56,6 +56,7 @@ var statusLog = console.SplitLeft("status");
 var transferLog = console.SplitRight("transfers");
 
 var nextSyncDatum = DateTime.Now;
+var nextSyncDatumLock = new object();
 var bSyncIsOngoing = false;
 var localDir = "";
 localDir = Path.Combine(Environment.CurrentDirectory, config.localDir);
@@ -86,17 +87,18 @@ using (var client = new SftpClient(connectionInfo))
         var remoteFileNames = remoteFiles.Select(file => file.FullName);
         //transferLog.WriteLine("local files {0}", localFiles);
         //transferLog.WriteLine("remote files {0}", remoteFileNames);
-        const int bufferSize = 1024 * 1024; // 1MB buffer sounds fine
+        int bufferSize = (int)(0.5 / bytesToGbs);
         var downloadFile = (ISftpFile remoteFile) =>
         {
-            var fileBytes = (ulong)remoteFile.Length;
+            var startDatum = nextSyncDatum;
             using (var localFile = File.Create(Path.Combine(localDir, remoteFile.Name), bufferSize, FileOptions.SequentialScan))
             {
+                var fileBytes = (ulong)remoteFile.Length;
                 var bar = new ProgressBar(transferLog, (int)(fileBytes * bytesToMbs), 40);
                 bar.Refresh(0, $"{fileBytes * bytesToGbs:0.00}GB {remoteFile.Name}");
                 client.DownloadFile(remoteFile.FullName, localFile, (bytesRead) =>
                 {
-                    var elapsedTime = (uint)(DateTime.Now - nextSyncDatum).Seconds + 1;
+                    var elapsedTime = (uint)(DateTime.Now - startDatum).Seconds + 1;
                     var bytesLeft = fileBytes - bytesRead;
                     var bytesPerSecond = bytesRead / elapsedTime;
                     var secondsLeft = bytesLeft / (bytesPerSecond == 0 ? 1 : bytesPerSecond);
@@ -104,6 +106,16 @@ using (var client = new SftpClient(connectionInfo))
                     fileBytes = (ulong)remoteFile.Length;
                     bar.Max = (int)(fileBytes * bytesToMbs);
                     bar.Refresh((int)(bytesRead * bytesToMbs), $"{bytesRead * bytesToGbs:0.00}/{fileBytes * bytesToGbs:0.00}GBs {bytesPerSecond * bytesToMbs:0.00}Mb/s ({secondsLeft}s) {remoteFile.Name}");
+                    
+                    // There is a bug where Task.WhenAll().Wait() does not seem to be waiting till DownloadFile is done
+                    // so if that happens we just catch it here and increase the next sync time till it's done, otherwise we end up crashing
+                    if (bSyncIsOngoing == false)
+                    {
+                        lock (nextSyncDatumLock)
+                        {
+                            nextSyncDatum = DateTime.Now + TimeSpan.FromSeconds(config.syncInterval);
+                        }
+                    }
                 });
             }
         };
@@ -121,6 +133,10 @@ using (var client = new SftpClient(connectionInfo))
         var filesToSync = remoteFiles.Where(shouldDownloadFile);
         if (filesToSync.Any())
         {
+            //foreach (var file in filesToSync)
+            //{
+            //    downloadFile(file);
+            //};
             Task.WhenAll(filesToSync.Select(file => Task.Run(() => downloadFile(file)))).Wait();
         }
         else
